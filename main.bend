@@ -87,15 +87,15 @@ def Ship.escape(
 ) -> Ship.Escape:
   Ship.escape.go(i, 1, cx, cy, 0.0, 0.0, 0.0, False{})
 
-def Ship.cx(+x: U32, +s: Ship.State) -> F32:
+def Ship.screen_x(+x: F32, +s: Ship.State) -> F32:
   State{cx, cy, span, iterations} = s
-  +u = (U32.to_f32(x) / 511.0 : F32)
+  +u = (x / 512.0 : F32)
 
   (cx + (u - 0.5) * span : F32)
 
-def Ship.cy(+y: U32, +s: Ship.State) -> F32:
+def Ship.screen_y(+y: F32, +s: Ship.State) -> F32:
   State{cx, cy, span, iterations} = s
-  +v = (U32.to_f32(y) / 511.0 : F32)
+  +v = (y / 512.0 : F32)
 
   (cy - (v - 0.5) * span : F32)
 
@@ -107,24 +107,59 @@ def Ship.zoom(
 ) -> Ship.State:
   State{cx, cy, span, iterations} = s
 
-  +u = (U32.to_f32(x) / 511.0 : F32)
-  +v = (U32.to_f32(y) / 511.0 : F32)
+  +mouse_x = (U32.to_f32(x) + 0.5 : F32)
+  +mouse_y = (U32.to_f32(y) + 0.5 : F32)
+
+  +cursor_x = Ship.screen_x(mouse_x, s)
+  +cursor_y = Ship.screen_y(mouse_y, s)
+
+  +u = (mouse_x / 512.0 : F32)
+  +v = (mouse_y / 512.0 : F32)
 
   +dx = (u - 0.5 : F32)
   +dy = (v - 0.5 : F32)
 
   +next_span = (span * factor : F32)
-  +delta = (span - next_span : F32)
 
   State{
-    (cx + dx * delta : F32),
-    (cy - dy * delta : F32),
+    (cursor_x - dx * next_span : F32),
+    (cursor_y + dy * next_span : F32),
     next_span,
     iterations
   }
 
 def Ship.pack(+r: U32, +g: U32, +b: U32) -> U32:
   (r << 16n .|. g << 8n .|. b : U32)
+
+def Ship.red(+color: U32) -> U32:
+  (color >> 16n : U32)
+
+def Ship.green(+color: U32) -> U32:
+  ((color >> 8n) .&. 255 : U32)
+
+def Ship.blue(+color: U32) -> U32:
+  (color .&. 255 : U32)
+
+def Ship.average4(
+  +c0: U32,
+  +c1: U32,
+  +c2: U32,
+  +c3: U32
+) -> U32:
+  +r = (
+    (Ship.red(c0) + Ship.red(c1) + Ship.red(c2) + Ship.red(c3)) / 4
+    : U32
+  )
+  +g = (
+    (Ship.green(c0) + Ship.green(c1) + Ship.green(c2) + Ship.green(c3)) / 4
+    : U32
+  )
+  +b = (
+    (Ship.blue(c0) + Ship.blue(c1) + Ship.blue(c2) + Ship.blue(c3)) / 4
+    : U32
+  )
+
+  Ship.pack(r, g, b)
 
 def Ship.smooth(e: Ship.Escape) -> F32:
   match e:
@@ -163,15 +198,27 @@ def Ship.color_escape(e: Ship.Escape) -> U32:
 
       Ship.pack(r, g, b)
 
-def Ship.color(+x: U32, +y: U32, +s: Ship.State) -> U32:
+def Ship.sample(+x: F32, +y: F32, +s: Ship.State) -> U32:
   State{cx, cy, span, iterations} = s
   Ship.color_escape(
     Ship.escape(
       U32.to_nat(iterations),
-      Ship.cx(x, s),
-      Ship.cy(y, s)
+      Ship.screen_x(x, s),
+      Ship.screen_y(y, s)
     )
   )
+
+def Ship.color(+x: U32, +y: U32, +s: Ship.State) -> U32:
+  +fx = U32.to_f32(x)
+  +fy = U32.to_f32(y)
+
+  c00 c10 c01 c11 =
+    Ship.sample((fx + 0.25 : F32), (fy + 0.25 : F32), s)
+    Ship.sample((fx + 0.75 : F32), (fy + 0.25 : F32), s)
+    Ship.sample((fx + 0.25 : F32), (fy + 0.75 : F32), s)
+    Ship.sample((fx + 0.75 : F32), (fy + 0.75 : F32), s)
+
+  Ship.average4(c00, c10, c01, c11)
 
 def Ship.scene(+d: Nat, +x: U32, +y: U32, +s: Ship.State) -> Image:
   match d:
@@ -193,7 +240,7 @@ def Ship.scene(+d: Nat, +x: U32, +y: U32, +s: Ship.State) -> Image:
 
 def Ship.view(s: Ship.State) -> Ship.State & Image:
   +s2 = s
-  (s2, Ship.scene(9n, 0, 0, s2))
+  (s2, Ship.scene!(9n, 0, 0, s2))
 
 def Ship.event(e: Event, s: Ship.State) -> Maybe<Ship.State>:
   match e:
