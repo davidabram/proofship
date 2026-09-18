@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-iterations=96
+iterations=500
 if (($# > 0)) && [[ "$1" != -* ]]; then
   iterations="$1"
   shift

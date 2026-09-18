@@ -12,7 +12,7 @@ def Ship.is_zero(+n: U32) -> Bool:
 def Ship.read_iterations(iterations: Maybe<&2, U32>) -> U32:
   match iterations:
     case None{}:
-      96
+      500
     case Some{n}:
       n
 
@@ -21,7 +21,7 @@ def Ship.env_iterations(
 ) -> U32:
   match result:
     case Fail{error}:
-      96
+      500
     case Done{value}:
       Ship.read_iterations(U32.read(value))
 
@@ -85,23 +85,33 @@ def Ship.escape(
 
 def Ship.cx(+x: U32) -> F32:
   +u = (U32.to_f32(x) / 511.0 : F32)
-  (F32.neg(2.2) + 3.4 * u : F32)
+
+  # approximately -1.805 .. -1.740
+  (F32.neg(1.7725) + (u - 0.5) * 0.065 : F32)
 
 def Ship.cy(+y: U32) -> F32:
   +v = (U32.to_f32(y) / 511.0 : F32)
-  (F32.neg(2.0) + 3.0 * v : F32)
+
+  # approximately -0.090 .. -0.025
+  (F32.neg(0.0575) + (v - 0.5) * 0.065 : F32)
+
+def Ship.pack(+r: U32, +g: U32, +b: U32) -> U32:
+  (r << 16n .|. g << 8n .|. b : U32)
 
 def Ship.color.go(+n: U32, is_zero: Bool) -> U32:
   match is_zero:
     case True{}:
-      0
+      # dark brick red: #913423
+      9516067
 
     case False{}:
-      +r = Ship.min(255, (n * 12 : U32))
-      +g = Ship.min(255, (n * 4 : U32))
-      +b = Ship.min(255, (n * 2 : U32))
+      +heat = Ship.min(255, (n * 4 : U32))
 
-      (r << 16n .|. g << 8n .|. b : U32)
+      +r = Ship.min(255, (145 + heat : U32))
+      +g = Ship.min(245, (52 + heat * 3 / 4 : U32))
+      +b = Ship.min(210, (35 + heat * 2 / 3 : U32))
+
+      Ship.pack(r, g, b)
 
 def Ship.color(+x: U32, +y: U32, +iterations: U32) -> U32:
   +cx = Ship.cx(x)
