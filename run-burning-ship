@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+iterations=96
+if (($# > 0)) && [[ "$1" != -* ]]; then
+  iterations="$1"
+  shift
+fi
+
+if [[ ! "$iterations" =~ ^[0-9]+$ ]]; then
+  echo "usage: $0 [iterations] [--gpu memory]" >&2
+  exit 2
+fi
+
+script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+exec env PROOFSHIP_ITERATIONS="$iterations" "$script_dir/burning-ship" "$@"
