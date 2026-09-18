@@ -1,13 +1,7 @@
 import Base
 
-def Ship.less(+a: U32, +b: U32) -> Bool:
-  U32.is_lt(a, b)
-
 def Ship.escaped(+x: F32, +y: F32) -> Bool:
   F32.is_gt((x * x + y * y : F32), 4.0)
-
-def Ship.is_zero(+n: U32) -> Bool:
-  U32.is_eq(n, 0)
 
 def Ship.read_iterations(iterations: Maybe<&2, U32>) -> U32:
   match iterations:
@@ -25,15 +19,8 @@ def Ship.env_iterations(
     case Done{value}:
       Ship.read_iterations(U32.read(value))
 
-def Ship.min.go(+a: U32, +b: U32, lt: Bool) -> U32:
-  match lt:
-    case True{}:
-      a
-    case False{}:
-      b
-
-def Ship.min(+a: U32, +b: U32) -> U32:
-  Ship.min.go(a, b, Ship.less(a, b))
+type Ship.Escape is Data:
+  Escape{n: U32, r2: F32}
 
 def Ship.escape.go(
   i: Nat,
@@ -42,26 +29,29 @@ def Ship.escape.go(
   +cy: F32,
   +zx: F32,
   +zy: F32,
+  +r2: F32,
   escaped: Bool
-) -> U32:
+) -> Ship.Escape:
   match i:
     case 0n:
       match escaped:
         case True{}:
-          U32.sub(step, 1)
+          Escape{step, r2}
+
         case False{}:
-          0
+          Escape{0, 0.0}
 
     case 1n+k:
       match escaped:
         case True{}:
-          U32.sub(step, 1)
+          Escape{step, r2}
 
         case False{}:
           +ax = F32.abs(zx)
           +ay = F32.abs(zy)
           +nx = (ax * ax - ay * ay + cx : F32)
           +ny = (2.0 * ax * ay + cy : F32)
+          +next_r2 = (nx * nx + ny * ny : F32)
 
           Ship.escape.go(
             k,
@@ -70,46 +60,63 @@ def Ship.escape.go(
             cy,
             nx,
             ny,
+            next_r2,
             Ship.escaped(nx, ny)
           )
 
 def Ship.escape(
   i: Nat,
-  +step: U32,
   +cx: F32,
-  +cy: F32,
-  +zx: F32,
-  +zy: F32
-) -> U32:
-  Ship.escape.go(i, step, cx, cy, zx, zy, False{})
+  +cy: F32
+) -> Ship.Escape:
+  Ship.escape.go(i, 1, cx, cy, 0.0, 0.0, 0.0, False{})
 
 def Ship.cx(+x: U32) -> F32:
   +u = (U32.to_f32(x) / 511.0 : F32)
 
-  # approximately -1.805 .. -1.740
-  (F32.neg(1.7725) + (u - 0.5) * 0.065 : F32)
+  # approximately -1.795 .. -1.750
+  (F32.neg(1.7725) + (u - 0.5) * 0.045 : F32)
 
 def Ship.cy(+y: U32) -> F32:
   +v = (U32.to_f32(y) / 511.0 : F32)
 
-  # approximately -0.090 .. -0.025
-  (F32.neg(0.0575) + (v - 0.5) * 0.065 : F32)
+  # approximately -0.080 .. -0.035, vertically reflected
+  (F32.neg(0.0575) - (v - 0.5) * 0.045 : F32)
 
 def Ship.pack(+r: U32, +g: U32, +b: U32) -> U32:
   (r << 16n .|. g << 8n .|. b : U32)
 
-def Ship.color.go(+n: U32, is_zero: Bool) -> U32:
-  match is_zero:
-    case True{}:
-      # dark brick red: #913423
-      9516067
+def Ship.smooth(e: Ship.Escape) -> F32:
+  match e:
+    case Escape{0, r2}:
+      0.0
 
-    case False{}:
-      +heat = Ship.min(255, (n * 4 : U32))
+    case Escape{n, r2}:
+      +mag = F32.sqrt(r2)
+      (
+        U32.to_f32(n)
+        + 1.0
+        - F32.log(F32.log(mag)) / F32.log(2.0)
+        : F32
+      )
 
-      +r = Ship.min(255, (145 + heat : U32))
-      +g = Ship.min(245, (52 + heat * 3 / 4 : U32))
-      +b = Ship.min(210, (35 + heat * 2 / 3 : U32))
+def Ship.color_escape(e: Ship.Escape) -> U32:
+  match e:
+    case Escape{0, r2}:
+      # deep brick red
+      Ship.pack(154, 56, 40)
+
+    case Escape{n, r2}:
+      +mu = Ship.smooth(Escape{n, r2})
+      +t = (
+        1.0
+        - F32.exp(F32.neg((mu * 0.018 : F32)))
+        : F32
+      )
+
+      +r = F32.to_u32((154.0 + 101.0 * t : F32))
+      +g = F32.to_u32((56.0 + 190.0 * t : F32))
+      +b = F32.to_u32((40.0 + 175.0 * t : F32))
 
       Ship.pack(r, g, b)
 
@@ -117,16 +124,13 @@ def Ship.color(+x: U32, +y: U32, +iterations: U32) -> U32:
   +cx = Ship.cx(x)
   +cy = Ship.cy(y)
 
-  +n = Ship.escape(
-    U32.to_nat(iterations),
-    1,
-    cx,
-    cy,
-    0.0,
-    0.0
+  Ship.color_escape(
+    Ship.escape(
+      U32.to_nat(iterations),
+      cx,
+      cy
+    )
   )
-
-  Ship.color.go(n, Ship.is_zero(n))
 
 def Ship.scene(+d: Nat, +x: U32, +y: U32, +iterations: U32) -> Image:
   match d:
