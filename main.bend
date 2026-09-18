@@ -19,6 +19,22 @@ def Ship.env_iterations(
     case Done{value}:
       Ship.read_iterations(U32.read(value))
 
+type Ship.State is Data:
+  State{
+    cx: F32,
+    cy: F32,
+    span: F32,
+    iterations: U32
+  }
+
+def Ship.init(+iterations: U32) -> Ship.State:
+  State{
+    F32.neg(1.7725),
+    F32.neg(0.0520),
+    0.032,
+    iterations
+  }
+
 type Ship.Escape is Data:
   Escape{n: U32, r2: F32}
 
@@ -71,17 +87,41 @@ def Ship.escape(
 ) -> Ship.Escape:
   Ship.escape.go(i, 1, cx, cy, 0.0, 0.0, 0.0, False{})
 
-def Ship.cx(+x: U32) -> F32:
+def Ship.cx(+x: U32, +s: Ship.State) -> F32:
+  State{cx, cy, span, iterations} = s
   +u = (U32.to_f32(x) / 511.0 : F32)
 
-  # approximately -1.7885 .. -1.7565
-  (F32.neg(1.7725) + (u - 0.5) * 0.032 : F32)
+  (cx + (u - 0.5) * span : F32)
 
-def Ship.cy(+y: U32) -> F32:
+def Ship.cy(+y: U32, +s: Ship.State) -> F32:
+  State{cx, cy, span, iterations} = s
   +v = (U32.to_f32(y) / 511.0 : F32)
 
-  # approximately -0.0680 .. -0.0360, vertically reflected
-  (F32.neg(0.0520) - (v - 0.5) * 0.032 : F32)
+  (cy - (v - 0.5) * span : F32)
+
+def Ship.zoom(
+  +s: Ship.State,
+  +x: U32,
+  +y: U32,
+  +factor: F32
+) -> Ship.State:
+  State{cx, cy, span, iterations} = s
+
+  +u = (U32.to_f32(x) / 511.0 : F32)
+  +v = (U32.to_f32(y) / 511.0 : F32)
+
+  +dx = (u - 0.5 : F32)
+  +dy = (v - 0.5 : F32)
+
+  +next_span = (span * factor : F32)
+  +delta = (span - next_span : F32)
+
+  State{
+    (cx + dx * delta : F32),
+    (cy - dy * delta : F32),
+    next_span,
+    iterations
+  }
 
 def Ship.pack(+r: U32, +g: U32, +b: U32) -> U32:
   (r << 16n .|. g << 8n .|. b : U32)
@@ -123,22 +163,20 @@ def Ship.color_escape(e: Ship.Escape) -> U32:
 
       Ship.pack(r, g, b)
 
-def Ship.color(+x: U32, +y: U32, +iterations: U32) -> U32:
-  +cx = Ship.cx(x)
-  +cy = Ship.cy(y)
-
+def Ship.color(+x: U32, +y: U32, +s: Ship.State) -> U32:
+  State{cx, cy, span, iterations} = s
   Ship.color_escape(
     Ship.escape(
       U32.to_nat(iterations),
-      cx,
-      cy
+      Ship.cx(x, s),
+      Ship.cy(y, s)
     )
   )
 
-def Ship.scene(+d: Nat, +x: U32, +y: U32, +iterations: U32) -> Image:
+def Ship.scene(+d: Nat, +x: U32, +y: U32, +s: Ship.State) -> Image:
   match d:
     case 0n:
-      Pix{Ship.color(x, y, iterations)}
+      Pix{Ship.color(x, y, s)}
 
     case 1n+e:
       +h = U32.shln(1, e)
@@ -146,21 +184,27 @@ def Ship.scene(+d: Nat, +x: U32, +y: U32, +iterations: U32) -> Image:
       +y1 = (y + h : U32)
 
       tl tr bl br =
-        Ship.scene(e, x,  y,  iterations)
-        Ship.scene(e, x1, y,  iterations)
-        Ship.scene(e, x,  y1, iterations)
-        Ship.scene(e, x1, y1, iterations)
+        Ship.scene(e, x,  y,  s)
+        Ship.scene(e, x1, y,  s)
+        Ship.scene(e, x,  y1, s)
+        Ship.scene(e, x1, y1, s)
 
       Qua{tl, tr, bl, br}
 
-def Ship.view(s: U32) -> U32 & Image:
+def Ship.view(s: Ship.State) -> Ship.State & Image:
   +s2 = s
   (s2, Ship.scene(9n, 0, 0, s2))
 
-def Ship.event(e: Event, +s: U32) -> Maybe<U32>:
+def Ship.event(e: Event, s: Ship.State) -> Maybe<Ship.State>:
   match e:
     case Key{27, True{}}:
       None{}
+
+    case Mouse{x, y, 0, True{}}:
+      Some{Ship.zoom(s, x, y, 0.5)}
+
+    case Mouse{x, y, 1, True{}}:
+      Some{Ship.zoom(s, x, y, 2.0)}
 
     case Close{}:
       None{}
@@ -168,7 +212,7 @@ def Ship.event(e: Event, +s: U32) -> Maybe<U32>:
     case _:
       Some{s}
 
-def Ship.events(events: List<Event>, s: U32) -> Maybe<U32>:
+def Ship.events(events: List<Event>, s: Ship.State) -> Maybe<Ship.State>:
   match events:
     case []:
       Some{s}
@@ -176,24 +220,30 @@ def Ship.events(events: List<Event>, s: U32) -> Maybe<U32>:
     case e <> rest:
       Maybe.bind(
         &1,
-        U32,
-        U32,
+        Ship.State,
+        Ship.State,
         Ship.event(e, s),
         next => Ship.events(rest, next)
       )
 
-def Ship.tick(events: List<Event>, s: U32) -> IO(Maybe<U32>):
-  IO.pure(Maybe<U32>, Ship.events(events, s))
+def Ship.tick(
+  events: List<Event>,
+  s: Ship.State
+) -> IO(Maybe<Ship.State>):
+  IO.pure(
+    Maybe<Ship.State>,
+    Ship.events(events, s)
+  )
 
 def main() -> IO(Unit):
   do IO<Unit>:
     settings : Result<&1, &1, U32 & String, String> <-
       IO.get_env("PROOFSHIP_ITERATIONS")
     App.run(
-      ~U32,
+      ~Ship.State,
       ~App{Ship.view, Ship.tick},
       "Proofship",
       512,
       512,
-      Ship.env_iterations(settings)
+      Ship.init(Ship.env_iterations(settings))
     )
