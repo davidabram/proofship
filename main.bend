@@ -22,59 +22,54 @@ def Ship.env_iterations(
 type Ship.Escape is Data:
   Escape{n: U32, r2: F32}
 
-def Ship.escape.select(
-  escaped: Bool,
-  +step: U32,
-  +r2: F32,
-  next: Ship.Escape
-) -> Ship.Escape:
-  match escaped:
-    case True{}:
-      Escape{step, r2}
-
-    case False{}:
-      next
-
 def Ship.escape.go(
   i: Nat,
   +step: U32,
   +cx: F32,
   +cy: F32,
   +zx: F32,
-  +zy: F32
+  +zy: F32,
+  +r2: F32,
+  escaped: Bool
 ) -> Ship.Escape:
   match i:
     case 0n:
-      Escape{0, 0.0}
+      match escaped:
+        case True{}:
+          Escape{U32.sub(step, 1), r2}
+
+        case False{}:
+          Escape{0, 0.0}
 
     case 1n+k:
-      +ax = F32.abs(zx)
-      +ay = F32.abs(zy)
-      +nx = (ax * ax - ay * ay + cx : F32)
-      +ny = (2.0 * ax * ay + cy : F32)
-      +next_r2 = (nx * nx + ny * ny : F32)
-      +did_escape = Ship.escaped(nx, ny)
+      match escaped:
+        case True{}:
+          Escape{U32.sub(step, 1), r2}
 
-      Ship.escape.select(
-        did_escape,
-        step,
-        next_r2,
-        Ship.escape.go(
-          k,
-          (step + 1 : U32),
-          cx,
-          cy,
-          nx,
-          ny
-        )
-      )
+        case False{}:
+          +ax = F32.abs(zx)
+          +ay = F32.abs(zy)
+          +nx = (ax * ax - ay * ay + cx : F32)
+          +ny = (2.0 * ax * ay + cy : F32)
+          +next_r2 = (nx * nx + ny * ny : F32)
+
+          Ship.escape.go(
+            k,
+            (step + 1 : U32),
+            cx,
+            cy,
+            nx,
+            ny,
+            next_r2,
+            Ship.escaped(nx, ny)
+          )
 
 def Ship.escape(
   i: Nat,
   +cx: F32,
   +cy: F32
 ) -> Ship.Escape:
-  Ship.escape.go(i, 1, cx, cy, 0.0, 0.0)
+  Ship.escape.go(i, 1, cx, cy, 0.0, 0.0, 0.0, False{})
 
 def Ship.cx(+x: U32) -> F32:
   +u = (U32.to_f32(x) / 511.0 : F32)
@@ -85,8 +80,8 @@ def Ship.cx(+x: U32) -> F32:
 def Ship.cy(+y: U32) -> F32:
   +v = (U32.to_f32(y) / 511.0 : F32)
 
-  # approximately -0.0735 .. -0.0415, vertically reflected
-  (F32.neg(0.0575) - (v - 0.5) * 0.032 : F32)
+  # approximately -0.0680 .. -0.0360, vertically reflected
+  (F32.neg(0.0520) - (v - 0.5) * 0.032 : F32)
 
 def Ship.pack(+r: U32, +g: U32, +b: U32) -> U32:
   (r << 16n .|. g << 8n .|. b : U32)
@@ -115,7 +110,7 @@ def Ship.color_escape(e: Ship.Escape) -> U32:
       +mu = Ship.smooth(Escape{n, r2})
       +t = (
         1.0
-        - F32.exp(F32.neg((mu * 0.030 : F32)))
+        - F32.exp(F32.neg((mu * 0.060 : F32)))
         : F32
       )
 
